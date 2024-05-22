@@ -1,5 +1,5 @@
 # Bayesian Set Benchmark Dose (BS-BMD) estimation 
-This repository holds the code and data to reproduce the results of our manuscript, "Bayesian Gene Set Benchmark Dose Estimation for "omic'' responses."  A production version of the software suitable for non-experts is being developed and will be released as either a standalone package or as a feature of an existing package.  When that version is released, this repo will redirect to the production repo of https://github.com/NIEHS/transcryptR, which is currently internal to the NIEHS.
+This repository holds the code and data to reproduce the results of our manuscript, "Bayesian Gene Set Benchmark Dose Estimation for "omic'' responses."  A production version of the software suitable for non-experts is being developed and will be released as either a standalone package or as a feature of an existing package.  This repo will eventually redirect to the production repo of https://github.com/NIEHS/transcryptR, which is currently internal to the NIEHS.
 
 The code has not be prepared for novice users but some basic instructions are provided below for reference.
 
