@@ -3,6 +3,11 @@ myargs <- commandArgs(trailingOnly = TRUE)
 print(myargs)
 ext_file_idx <- 18
 quantile_cutoff <- .78
+use_GO <- FALSE
+save_params <- FALSE
+simulation_study <- FALSE
+study_type <- 2
+use_full_genome_as_cluster <- FALSE
 output_id <- date()
 if (length(myargs) > 0) {
   ext_file_idx <- as.numeric(myargs[1])
@@ -10,6 +15,11 @@ if (length(myargs) > 0) {
     quantile_cutoff <- as.numeric(myargs[2])
     if (length(myargs) > 2) {
       output_id <- myargs[3]
+      if (length(myargs) > 3) {
+        sim_sets <- myargs[4]
+        if (sim_sets == "use_GO") use_GO <- TRUE
+        if (sim_sets == "simulate") simulation_study <- TRUE
+      }
     }
   }
 }
@@ -32,26 +42,53 @@ library(ggplot2)
 library(reshape2)
 library(data.table)
 library(stringr)
-library(tables)
 library(Rcpp)
 sourceCpp("src/code.cpp")
 
-compute_BMD <- function(hallmark_bigset_df, BMD_MCMC_iter, burnin) {
-  bmd_iters <- hallmark_bigset_df[, (burnin + 4):BMD_MCMC_iter]
-  BMD_func <- function(BMD_sample) {
-    return(quantile(BMD_sample, 0.05))
-    if (quantile(BMD_sample, .99) == max(BMD_sample)) {
-      return(1e6)
-    }
-  }
-  BMD_by_hallmark <- apply(bmd_iters, MARGIN = 1, BMD_func)
-  return(BMD_by_hallmark)
-}
 
 
 print("reading files")
+
+
+# setup GO
+probe2gene <- scan(
+  file = "input/GO_data/probe2gene.gz",
+  what = "list", sep = "\n"
+)
+probe2gene_long <- probe2gene %>%
+  lapply(., FUN = function(lent) unlist(strsplit(lent, ";|\t"))) %>%
+  lapply(., FUN = function(list_input) {
+    data.frame(
+      "Probe_ID" = cbind(rep(
+        list_input[1],
+        length(list_input) - 1
+      )),
+      "gene" = list_input[-c(1)]
+    )
+  }) %>%
+  bind_rows()
+
+GO2gene <- scan(
+  file = "input/GO_data/genes2gos.gz",
+  what = "list", sep = c("\n")
+)
+
+GO2probe_long <- GO2gene[-1] %>%
+  lapply(., FUN = function(lent) unlist(strsplit(lent, ";|\t"))) %>%
+  lapply(., FUN = function(list_input) {
+    data.frame(
+      "GO" = list_input[-c(1:2)], # the 2nd entry is unnecessary text?
+      "gene" = cbind(rep(list_input[1], length(list_input) - 2))
+    )
+  }) %>%
+  bind_rows() %>%
+  left_join(probe2gene_long, by = "gene", relationship = "many-to-many") %>%
+  distinct(GO, Probe_ID, .keep_all = TRUE) %>%
+  arrange(GO)
+
+
 input_dir <- "input/"
-input_files_dir <- "input/organ_data/"
+input_files_dir <- "input/null_data/" # organ_data
 #  null data can be used instead, input/null_data/
 output_dir <- "output/"
 file_list <- list.files(path = input_files_dir)
@@ -59,13 +96,12 @@ file_list <- list.files(path = input_files_dir)
 probe_map <- readr::read_table(file = "input/Probe File_Rat S1500+.txt")
 gene_set <- readr::read_table(file = "input/Rat_Genome_Whole_H_msigdb_v5.0.txt")
 gene_probe_map <- dplyr::inner_join(gene_set, probe_map, "Entrez_Gene_ID")
-save_params = FALSE
-BMD_MCMC_iter <- 2000
+BMD_MCMC_iter <- 7000
 set.seed(BMD_MCMC_iter)
 # list to store empirical test statistic from permutation tests
 gene_cluster_statistic_table <- list()
 print("Beginning outer loop over files")
-for (file_idx in c(18)) {
+for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
   # Load Data ####
   print(paste("Started:", file_list[file_idx]))
   curr_file <- paste(input_files_dir, file_list[file_idx], sep = "")
@@ -77,12 +113,73 @@ for (file_idx in c(18)) {
   for (hlmk in unique(gene_probe_map$MSigDBName)) {
     probset <- gene_probe_map$Probe_ID[gene_probe_map$MSigDBName == hlmk]
     probe_group <- which(unlist(lapply(curr_data$Probe_ID,
-      FUN = function(x) (x %in% probset))))
+                                       FUN = function(x) (x %in% probset))))
     clust_groups <- c(clust_groups, list(probe_group))
   }
-  n_grps <- length(clust_groups)
+
+  if (use_GO) {
+    # create a simple map between probe and data index
+    probe_idx <- data.frame("Probe_ID" = curr_data$Probe_ID,
+                            "indx" = 1:nrow(curr_data))
+    # use the GO to probe dataframe to collect relevant indices into lists
+    clust_groups_GO_df <- GO2probe_long %>%
+      left_join(probe_idx, by = "Probe_ID") %>%
+      na.omit() %>% # some probes not in the data
+      group_by(GO) %>%
+      summarise(
+        set_indx = list(indx),
+        n_genes = length(indx)
+      ) %>%
+      filter(n_genes > 19 & n_genes < 501)
+    go_names <- clust_groups_GO_df$GO # may help for labeling
+    clust_groups <- clust_groups_GO_df$set_indx
+  }
+
+
   # create obs data matrix
   organ_data <- as.matrix(curr_data[, -1])
+
+  # Simulation section ####
+  # the fixed effect should be added before the centering
+  if (simulation_study) {
+    genes_to_add_signal <- c()
+    # apply fixed effects (hill function?) to 50% of the genes in some sets
+    set.seed(1298)
+    p_add_signal <- 1
+    if (study_type == 1) {
+      # choose 3 gene sets:
+      true_signal_genesets <- sample(1:n_grps, 3) # 28, 11, 37
+      genes_to_add_signal <- unique(unlist(clust_groups[true_signal_genesets]))
+      p_add_signal <- 0.5
+    }
+    if (study_type == 2) {
+      # choose one gene from each gene set
+      # sample from set diff
+      for (gp in 1:length(clust_groups)) {
+        sample_set <- setdiff(clust_groups[[gp]], unlist(clust_groups[-gp]))
+        sampled_gene <- sample(sample_set, 1)
+        if (length(sample_set) == 1) sampled_gene <- sample_set
+        genes_to_add_signal <- c(genes_to_add_signal, sampled_gene)
+      }
+    }
+    # for each gene, add signals with probability 50%
+    genes_with_added_signal <- c()
+    for (gs in genes_to_add_signal) {
+      if (runif(1) < p_add_signal) {
+        amax <- 2 # runif(1, 1, 3)
+        ec50 <- 100 # runif(1, min = 0, max =  max(doses)/2)
+        effect <- hill_function(a = amax, b = ec50, c = 1, conc = doses)
+        organ_data[gs, ] <- organ_data[gs, ] + effect
+        genes_with_added_signal <- c(genes_with_added_signal, gs)
+      }
+    }
+  }
+
+  if (use_full_genome_as_cluster) {
+    clust_groups <- c(clust_groups, list(c(1:nrow(curr_data))))
+  }
+  n_grps <- length(clust_groups)
+
   # center data to match centered prior
   r_means <- rowMeans(organ_data)
   organ_data <- organ_data - matrix(r_means, nrow(organ_data), ncol(organ_data))
@@ -102,6 +199,9 @@ for (file_idx in c(18)) {
     warning("Dose Missing, added maximum dose to list")
     doses <- c(doses, max(doses))
   }
+
+
+
 
   X <- splines::bs(log(doses + 1), df = 5, intercept = TRUE)
   interp_knots <- attributes(X)$knots
@@ -138,7 +238,13 @@ for (file_idx in c(18)) {
   beta_record <- array(0, dim = c(BMD_MCMC_iter, nrow(betas), ncol(betas)))
   tau_record <- matrix(0, nrow = BMD_MCMC_iter, ncol = length(taus))
   eta_record <- array(0, dim = c(BMD_MCMC_iter, nrow(eta), ncol(eta)))
-  lambda_record <- array(0, dim = c(BMD_MCMC_iter, nrow(lambda), ncol(lambda)))
+  if (save_params) {
+    lambda_record <- array(0, dim = c(
+      BMD_MCMC_iter - 2000,
+      nrow(lambda),
+      ncol(lambda)
+    ))
+  }
   ####################################
   # local scale variance
   theta <- matrix(1, nrow(organ_data), n_l_factors)
@@ -186,7 +292,7 @@ for (file_idx in c(18)) {
     for (kk in 1:n_l_factors) {
       temp_g <- gam_prior / gammas_prior[kk]
       mult_A <- matrix(temp_g, nrow(lambda), ncol(lambda), byrow = TRUE)
-      b_t <- 0.5 * sum(mult_A[, kk:n_l_factors] *
+      b_t <- 0.5 * sum(mult_A[, kk:n_l_factors] * 
                          mult_lambda[, kk:n_l_factors]) + 1
       a_t <- 0.5 * length(mult_A[, kk:n_l_factors]) + 3.3
       gammas_prior[kk] <- rgamma(1, a_t, b_t)
@@ -223,8 +329,15 @@ for (file_idx in c(18)) {
     for (uv in 1:length(clust_groups)) {
       clust_idx <- clust_groups[[uv]]
       clust_size <- length(clust_idx)
-      B <- solve(mat[clust_idx, clust_idx])
-      B_t <- solve
+      B <- 1
+      if (clust_size == nrow(curr_data)) { # Woodbury identity
+        A_i <- tau_mat # Matrix(as.numeric(taus)*Diagonal(length(taus)))
+        B <- solve(diag(n_l_factors) + t(lambda) %*% A_i %*% lambda)
+        B <- A_i - A_i %*% lambda %*% B %*% t(lambda) %*% A_i
+      } else {
+        B <- solve(mat[clust_idx, clust_idx])
+      }
+
       # Pred Response
       R <- t(ju %*% betas[, clust_idx]) # allow for interpolator
       R <- R[, ] - R[, 1]
@@ -261,7 +374,7 @@ for (file_idx in c(18)) {
       beta_record[nn, , ] <- betas
       tau_record[nn, ] <- taus
       eta_record[nn, , ] <- eta
-      lambda_record[nn, , ] <- lambda
+      if (nn > 2000) lambda_record[nn - 2000, , ] <- lambda
     }
   }
   print(paste("Finished:", file_list[file_idx]))
