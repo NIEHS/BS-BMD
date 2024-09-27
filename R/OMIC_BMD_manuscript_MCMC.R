@@ -88,7 +88,7 @@ GO2probe_long <- GO2gene[-1] %>%
 
 
 input_dir <- "input/"
-input_files_dir <- "input/null_data/" # organ_data
+input_files_dir <- "input/organ_data/" # organ_data
 #  null data can be used instead, input/null_data/
 output_dir <- "output/"
 file_list <- list.files(path = input_files_dir)
@@ -101,7 +101,7 @@ set.seed(BMD_MCMC_iter)
 # list to store empirical test statistic from permutation tests
 gene_cluster_statistic_table <- list()
 print("Beginning outer loop over files")
-for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
+for (file_idx in ext_file_idx) { # c(17, 18, 19, 20,25, 26 )) {
   # Load Data ####
   print(paste("Started:", file_list[file_idx]))
   curr_file <- paste(input_files_dir, file_list[file_idx], sep = "")
@@ -129,8 +129,7 @@ for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
       summarise(
         set_indx = list(indx),
         n_genes = length(indx)
-      ) %>%
-      filter(n_genes > 19 & n_genes < 501)
+      ) #%>% filter(n_genes > 19 & n_genes < 501)
     go_names <- clust_groups_GO_df$GO # may help for labeling
     clust_groups <- clust_groups_GO_df$set_indx
   }
@@ -341,6 +340,7 @@ for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
       # Pred Response
       R <- t(ju %*% betas[, clust_idx]) # allow for interpolator
       R <- R[, ] - R[, 1]
+      if(clust_size == 1) R <- t(R) # dimensions get messed up if n=1
       # Form my Test Statistic
       TS <- t(R) %*% B
       TS <- t(TS) * R
@@ -348,6 +348,7 @@ for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
       # Null Response
       R_null <- t(ju %*% betas_null[, clust_idx]) # allow for interpolator
       R_null <- R_null[, ] - R_null[, 1]
+      if(clust_size == 1) R_null <- t(R_null)
       # compute null test statistic
       TS_null <- t(R_null) %*% tau_mat[clust_idx, clust_idx]
       TS_null <- t(TS_null) * R_null
@@ -356,7 +357,6 @@ for (file_idx in 6) { # c(17, 18, 19, 20,25, 26 )) {
       chi2_threshold <- qchisq(0.98, df = clust_size) - qchisq(0.78,
         df = clust_size
       )
-
       solve_fun <- function(d) bubs(d) - chi2_threshold
       # compute the BMD
       if (sign(solve_fun(0)) != sign(solve_fun(log(max(doses) + 1)))) {

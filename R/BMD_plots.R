@@ -566,8 +566,8 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
 
 
   # get the BMD for 5-day study
-  epa_df <- read_delim("../../scott_epa/EPA_hallmark.txt", delim = "\t")
-  epa_hallmark_df <- epa_df %>%
+  epa_df_pt1 <- read_delim("../../scott_epa/EPA_hallmark.txt", delim = "\t")
+  epa_hallmark_df_pt1 <- epa_df_pt1 %>%
     mutate(
       Chemical = unlist(lapply(
         Analysis,
@@ -594,7 +594,40 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
       Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
       BMD_Median_epa, BMDL_Median_epa, Active_Genes
     )
-
+  
+  
+  epa_file = "../../scott_epa/ETAP Hallmark Final - Analysis in BMDE2 Hallmark 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
+  epa_df_pt2 <- read_delim(epa_file, skip = 4, delim = "\t")
+  epa_hallmark_df_pt2 <- epa_df_pt2 %>%
+    mutate(
+      Chemical = unlist(lapply(
+        Analysis,
+        function(x) unlist(strsplit(x, split = "_"))[1]
+      )),
+      Tissue = unlist(lapply(
+        Analysis,
+        function(x) str_to_title(unlist(strsplit(x, split = "_"))[2])
+      ))
+    ) %>%
+    transform(
+      # BMD_epa = `BMD at 5th Percentile of Total Genes`,
+      # BMD_Mean_epa = `BMD Mean`,
+      BMD_Median_epa = `BMD Median`,
+      # BMDL_Mean_epa = `BMDL Mean`,
+      BMDL_Median_epa = `BMDL Median`,
+      Hallmark = `GO/Pathway/Gene Set/Gene Name`,
+      Active_Genes = paste0(
+        `Genes That Passed All Filters`,
+        "/", `All Genes (Expression Data)`
+      )
+    ) %>%
+    dplyr::select(
+      Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
+      BMD_Median_epa, BMDL_Median_epa, Active_Genes
+    )
+  
+  epa_hallmark_df<- rbind(epa_hallmark_df_pt1, epa_hallmark_df_pt2)
+  
   epa_hallmark_df$Chemical[grep(
     "thujone",
     epa_hallmark_df$Chemical
@@ -618,6 +651,8 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
       stringr::str_to_title(nistr)
     }
   ))
+  
+  
 
   if (take_top_n > 0) {
     # return a table with the lowest n BMDs from our method with the
@@ -660,14 +695,12 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
   if (apical_top > 0) {
     chem_names <- unique(hallmark_df$Chemical)
     # lookup apical data
-    apical_df <- read_apical_input(chem_names, top_n = 3) %>%
-      group_by(Chemical) %>%
-      slice_min(BMDL, n = min(apical_top, 3))
+    apical_df <- read_apical_input(chem_names, take_top_n = apical_top)
     # sub comp only takes BSBMD values
     sub_comp_df <- comp_df %>%
       # filter(significance == "Significant") %>%
       group_by(Chemical) %>%
-      slice_min(BMD, n = min(apical_top, 3)) %>%
+      slice_min(BMD, n = min(apical_top, 3), with_ties = FALSE) %>%
       transform(
         BSBMD = BMD,
         BSBMDL = BMDL,
@@ -705,7 +738,7 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
   return(comp_df)
 }
 
-read_apical_input <- function(chem_names, tableid = 5, top_n = 1) {
+read_apical_input <- function(chem_names, tableid = 5, take_top_n = 1) {
   apical_df <- readxl::read_xlsx("../../scott_epa/apical_data.xlsx") %>%
     filter(Table_id == tableid) %>%
     select(!Table_id)
@@ -729,43 +762,43 @@ read_apical_input <- function(chem_names, tableid = 5, top_n = 1) {
       BMD = as.numeric(BMD)
     ) %>%
     group_by(Chemical) %>%
-    slice_min(BMDL, n = top_n)
+    slice_min(BMDL, n = take_top_n)
 
-  if (tableid == 5) {
+  if (tableid == 5 && take_top_n == 1) {
     # Fenofibrate BMDL 0.269
     apical_df[7, 4] <- 0.269 # from TGGATEs
     # DEHP: 2year Pancreas adenoma carcinoma 31.2  20.3
-    apical_df[which(apical_df$Chemical == "DEHP"), 3:4] <- c(31.2, 20.3)
-    apical_df[which(apical_df$Chemical == "DEHP"), 3:4] <-
+    apical_df[which(apical_df$Chemical == "DEHP"), 3:4] <- list(31.2, 20.3)
+    apical_df[which(apical_df$Chemical == "DEHP"), 2] <-
       "Pancreas adenoma carcinoma"
 
     # HCB Chronic nephrosis severe  0.59 0.35
-    apical_df[which(apical_df$Chemical == "HCB"), 3:4] <- c(0.59, 0.35)
+    apical_df[which(apical_df$Chemical == "HCB"), 3:4] <- list(0.59, 0.35)
     apical_df[which(apical_df$Chemical == "HCB"), 2] <-
       "Chronic nephrosis severe"
 
     # PFOA  Liver hepatocyte hypertrophy 0.5 0.41
-    apical_df[which(apical_df$Chemical == "PFOA"), 3:4] <- c(0.5, 0.41)
+    apical_df[which(apical_df$Chemical == "PFOA"), 3:4] <- list(0.5, 0.41)
     apical_df[which(apical_df$Chemical == "PFOA"), 2] <-
       "Liver hepatocyte hypertrophy"
 
     # Pulegon Nose olfactory epithelial degeneration 14.02 9.47
-    apical_df[which(apical_df$Chemical == "Pulegone"), 3:4] <- c(14.02, 9.47)
+    apical_df[which(apical_df$Chemical == "Pulegone"), 3:4] <- list(14.02, 9.47)
     apical_df[which(apical_df$Chemical == "Pulegone"), 2] <-
       "Nose olfactory epithelial degeneration"
 
     # TBBPA 90day Total thyroid 56.5 46.1
-    apical_df[which(apical_df$Chemical == "TBBPA"), 3:4] <- c(56.5, 46.1)
+    apical_df[which(apical_df$Chemical == "TBBPA"), 3:4] <- list(56.5, 46.1)
     apical_df[which(apical_df$Chemical == "TBBPA"), 2] <-
       "Total thyroid"
 
     # TCPP lung granulomatous focal inflammation 223.6 58.8
-    apical_df[which(apical_df$Chemical == "TCPP"), 3:4] <- c(223.6, 58.8)
+    apical_df[which(apical_df$Chemical == "TCPP"), 3:4] <- list(223.6, 58.8)
     apical_df[which(apical_df$Chemical == "TCPP"), 2] <-
       "Lung granulomatous focal inflammation"
 
     # Triclosan zorrila 2009 thyroid hormone 14.5 7.23 (BMR: 20%)
-    apical_df[which(apical_df$Chemical == "TCPP"), 3:4] <- c(14.5, 7.23)
+    apical_df[which(apical_df$Chemical == "TCPP"), 3:4] <- list(14.5, 7.23)
     apical_df[which(apical_df$Chemical == "TCPP"), 2] <-
       "Lung granulomatous focal inflammation"
 
@@ -800,10 +833,8 @@ compare_GO_apical <- function(GO_df, n_terms = 3, use_ETAP = FALSE) {
     dplyr::mutate_if(is.numeric, round, 2)
 
   if (use_ETAP) {
-    ETAP_apical_go_file <- "../../scott_epa/ETAP GOBP v5 EPA Direct.txt"
-
-    ETAP_apical_GO_df <- read_delim(ETAP_apical_go_file) %>% # ,skip = 6
-      # filter(`Input Genes` > 19 & `Input Genes` < 501) %>%
+    ETAP_apical_GO_df_pt1 <- read_delim(file = "../../scott_epa/ETAP GOBP v5 EPA Direct.txt") %>% # ,skip = 6
+      filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
       select(c(1, 2, 3, 4, 17, 18)) %>% # 23,24 for v3
       mutate(
         Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][2])),
@@ -821,7 +852,29 @@ compare_GO_apical <- function(GO_df, n_terms = 3, use_ETAP = FALSE) {
       filter(Chemical %in% unique(GO_df$Chemical))
 
 
-    sub_comp_df <- ETAP_apical_GO_df %>%
+    ETAP_apical_go_miss <- "../../scott_epa/ETAP GO Final - Analysis in BMDE2 GO BP 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
+    ETAP_apical_GO_df_pt2 <- read_delim(ETAP_apical_go_miss, skip = 4) %>% # ,skip = 6
+      filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
+      select(c(1, 2, 3, 4, 25, 31)) %>% # 23,24 for v3 #17, 18 for v4
+      mutate(
+        Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][1])),
+        Tissue = unlist(lapply(Analysis, FUN = function(r) {
+          tiss <- strsplit(r, "_")[[1]][2]
+          if (tiss == "AA") tiss <- "liver" # TBBPA has "__" instead of "_"
+          return(tiss)
+        })),
+        BMDL = `BMDL Median`,
+        BMD = `BMD Median`
+      ) %>%
+      mutate(Chemical = unlist(lapply(Chemical,
+                                      FUN = function(r) str_replace(r, "-", "")
+      ))) %>%
+      filter(Chemical %in% unique(GO_df$Chemical))
+    
+    
+    ETAP_apical_GO_df_tot = rbind(ETAP_apical_GO_df_pt1, ETAP_apical_GO_df_pt2)
+    
+    sub_comp_df <- ETAP_apical_GO_df_tot %>%
       group_by(Chemical) %>%
       slice_min(BMD, n = n_terms, with_ties = F) %>%
       select(7, 8, 2, 10, 9) %>%
@@ -888,7 +941,7 @@ create_ordering_vis <- function(comp_df, chem = "Fenofibrate") {
     filter(Tissue == "Liver") %>%
     filter(complete.cases(.)) %>%
     group_by(Hallmark) %>%
-    slice_min(BMD_epa, n = min(1)) %>%
+    slice_min(BMD_Median_epa, n = min(1)) %>%
     dplyr::mutate_if(is.numeric, round, 2) %>%
     arrange(BMDL_Median_epa) %>%
     mutate(Hallmark_BMD = paste0(
@@ -1072,10 +1125,16 @@ scatter_plot_4way <- function(plot_name = "Compare_all_table5.pdf"){
   BSBMD_vs_apical <- compare_bmd_EPA(hallmark_bigset_df,
                                      take_top_n = FALSE,
                                      apical_top = 1)
+  BSBMD_vs_apical<- BSBMD_vs_apical[-16,]
+  BSBMD_vs_apical[BSBMD_vs_apical$Chemical == "EE",c(8,9)] <- 
+    BSBMD_vs_apical[BSBMD_vs_apical$Chemical == "EE",c(8,9)]/1000
   ETAP_vs_apical <- compare_bmd_EPA(hallmark_bigset_df,
                                     take_top_n = FALSE,
                                     apical_top = 1,
                                     epa_vs_ap = T)
+  ETAP_vs_apical<- ETAP_vs_apical[-16,]
+  ETAP_vs_apical[ETAP_vs_apical$Chemical == "EE",c(8,9)] <- 
+    ETAP_vs_apical[ETAP_vs_apical$Chemical == "EE",c(8,9)]/1000
   BSBMD_vs_apical_GO <- compare_GO_apical(GO_lowest5_df,
                                           n_terms = 1)
   ETAP_vs_apical_GO <- compare_GO_apical(GO_lowest5_df,
@@ -1083,6 +1142,7 @@ scatter_plot_4way <- function(plot_name = "Compare_all_table5.pdf"){
                                          use_ETAP = T)
   # compute RMSE to show on legend
   get_RMSE <- function(pt1, pt2) round(sqrt(mean((pt1 - pt2)^2, na.rm = T)), 2)
+  
   RMSE_BSBMD_GO <- get_RMSE(
     BSBMD_vs_apical_GO$GO.BSBMDL,
     BSBMD_vs_apical_GO$BMDL
@@ -1134,7 +1194,7 @@ scatter_plot_4way <- function(plot_name = "Compare_all_table5.pdf"){
     ylab("Apical BMDL (mg/kg)") +
     theme(legend.position = "bottom") +
     guides(color = guide_legend(nrow = 2))
-  ggsave(plot_name, device = "pdf", width = 7, height = 5)
+  ggsave(plot_name, device = "pdf", width = 7.5, height = 5.5)
 }
 
 
@@ -1205,6 +1265,7 @@ if (FALSE) {
   # GO term calculations ####
   # similar to above loop but for GO terms instead of Hallmark sets
   output_dir <- "output/"
+  output_dir <- "/Volumes/zilberds/bmd-contain/output/" # server:  
   input_dir <- "input/"
   input_files_dir <- "input/organ_data/"
   probe_map <- readr::read_table(file = "input/Probe File_Rat S1500+.txt")
@@ -1217,7 +1278,7 @@ if (FALSE) {
   file_list_in <- list.files(path = input_files_dir)
 
   # use the output_id string or manually select only relevant files
-  GO_list <- file_list_out[grep("7k_GO", file_list_out)]
+  GO_list <- file_list_out[grep("7k_GO_with_3", file_list_out)]
   GO_list_filenames <-
     sapply(GO_list,
       FUN = function(x) strsplit(x, split = "[.]")[[1]][1],
@@ -1248,7 +1309,7 @@ if (FALSE) {
       group_by(GO) %>%
       summarise(set_indx = list(indx),
                 n_genes = length(indx)) %>%
-      filter(n_genes > 19 & n_genes < 501)
+      filter(n_genes > 2 & n_genes < 501)
     go_names <- clust_groups_GO_df$GO # may help for labeling
 
     GO_BMD_df <- prepare_MCMC_output_for_plot(GO_list[idx],
@@ -1256,8 +1317,9 @@ if (FALSE) {
       includes_full_genome = F,
       use_GO = T
     )
-
-    GO_BMDL <- apply(GO_BMD_df[, 2004:7003], MARGIN = 1, FUN = function(rw) quantile(rw, 0.05))
+    
+    GO_BMDL <- apply(GO_BMD_df[, 2004:7003], MARGIN = 1,
+                     FUN = function(rw) quantile(rw, 0.05))
     GO_BMD <- apply(GO_BMD_df[, 2004:7003], MARGIN = 1, mean)
     BMDL_seq <- order(GO_BMDL)[1:5]
 
@@ -1271,6 +1333,8 @@ if (FALSE) {
     GO_lowest5_df <- rbind(GO_lowest5_df, GO_BMD_top5)
   }
 
+  #save(GO_lowest5_df, file = "output/final_GO_BMDs_with_3small_top5.RData")
+  #load("output/final_GO_BMDs_with_3small_top5.RData")
   table_for_supplement <- compare_GO_apical(GO_lowest5_df, n_terms = 3)
   BSBMD_vs_apical_GO <- compare_GO_apical(GO_lowest5_df, n_terms = 1)
   ETAP_vs_apical_GO <- compare_GO_apical(GO_lowest5_df, n_terms = 1, use_ETAP = T)
@@ -1414,7 +1478,12 @@ if (FALSE) {
     ggtitle("QQ Norm, Data - XB")
 
 
-
+  # Ordering visualization ####
+  comp_df = compare_bmd_EPA(hallmark_bigset_df,
+                            take_top_n = 50)
+  create_ordering_vis(comp_df, chem = "Fenofibrate")
+  create_ordering_vis(comp_df, chem = "Furan")
+  create_ordering_vis(comp_df, chem = "Methyleugenol")
   
   # 3-way and 4-way Scatter ####
   scatter_plot_3way() 
@@ -1423,6 +1492,26 @@ if (FALSE) {
 
   # Latex tables ####
   # GO + HLMK Tables ####
+  BSBMD_vs_apical <- compare_bmd_EPA(hallmark_bigset_df,
+                                     take_top_n = FALSE,
+                                     apical_top = 1)
+  BSBMD_vs_apical[BSBMD_vs_apical$Chemical == "EE",c(8,9)] <- 
+    BSBMD_vs_apical[BSBMD_vs_apical$Chemical == "EE",c(8,9)]/1000
+  
+  ETAP_vs_apical <- compare_bmd_EPA(hallmark_bigset_df,
+                                    take_top_n = FALSE,
+                                    apical_top = 1,
+                                    epa_vs_ap = T)
+  ETAP_vs_apical[ETAP_vs_apical$Chemical == "EE",c(8,9)] <- 
+    ETAP_vs_apical[ETAP_vs_apical$Chemical == "EE",c(8,9)]/1000
+  
+  BSBMD_vs_apical_GO <- compare_GO_apical(GO_lowest5_df,
+                                          n_terms = 1)
+  ETAP_vs_apical_GO <- compare_GO_apical(GO_lowest5_df,
+                                         n_terms = 1,
+                                         use_ETAP = T)
+  
+  
   # these are in the supplement
   colnames(ETAP_vs_apical_GO)[1] <- "Chemical"
   colnames(BSBMD_vs_apical_GO)[1] <- "Chemical"
@@ -1430,15 +1519,35 @@ if (FALSE) {
     select(-c(2, 3, 5:7, 8)) %>%
     full_join(ETAP_vs_apical[, c(1, 9)], by = "Chemical") %>%
     full_join(BSBMD_vs_apical_GO[, c(1, 9)], by = "Chemical") %>%
-    full_join(ETAP_vs_apical_GO[, c(1, 9)], by = "Chemical") %>%
-    dplyr::mutate_if(is.numeric, round, 2)
+    full_join(ETAP_vs_apical_GO[, c(1, 9)], by = "Chemical") 
 
+
+    
+    exclude_chems = c(9, 16)
+  bmdmat = sweep(wide_comparison_BMDL[-exclude_chems, 3:6],
+        MARGIN = 1,
+        STATS = wide_comparison_BMDL$BMDL[-exclude_chems],
+        FUN = "/") %>%
+    mutate_if(is.numeric, log) %>%
+    dplyr::mutate_if(is.numeric, signif, 2)
+  
+
+  
+  latex.tabular(as.tabular(
+    rbind(cbind(wide_comparison_BMDL$Chemical[-exclude_chems], bmdmat),
+          c("Mean" ,round(colMeans(bmdmat, na.rm = T), 2)))
+    ))
+  
+  
+  wide_comparison_BMDL <- wide_comparison_BMDL%>%
+    dplyr::mutate_if(is.numeric, signif, 3)
+  
   wide_comparison_BMD <- BSBMD_vs_apical %>%
     select(-c(2, 4:7, 9)) %>%
     full_join(ETAP_vs_apical[, c(1, 8)], by = "Chemical") %>%
     full_join(BSBMD_vs_apical_GO[, c(1, 8)], by = "Chemical") %>%
     full_join(ETAP_vs_apical_GO[, c(1, 8)], by = "Chemical") %>%
-    dplyr::mutate_if(is.numeric, round, 2)
+    dplyr::mutate_if(is.numeric, signif, 2)
 
   latex.tabular(as.tabular(as.data.frame(wide_comparison_BMDL)))
   latex.tabular(as.tabular(as.data.frame(wide_comparison_BMD)))
@@ -1482,4 +1591,8 @@ if (FALSE) {
   top3_noBPAF_tric <- top3_BMDL %>%
     filter(!(Chemical %in% c("BPAF", "Triclosan")))
   latex.tabular(as.tabular(as.data.frame(top3_noBPAF_tric)))
-}
+
+
+    top3_BMDL <- top3_BMDL %>% mutate_if(is.numeric, round, 2)  
+  latex.tabular(as.tabular(as.data.frame(top3_BMDL)))
+  }
