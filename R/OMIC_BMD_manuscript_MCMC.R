@@ -134,6 +134,11 @@ for (file_idx in ext_file_idx) { # c(17, 18, 19, 20,25, 26 )) {
     clust_groups <- clust_groups_GO_df$set_indx
   }
 
+  # extract doses
+  dose_data <- readr::read_table(curr_file, col_names = FALSE, n_max = 2)
+  dose_vec <- (as.numeric(dose_data[2, ]))
+  # doses included as unlabeled row, needs correction
+  doses <- dose_vec[-which(is.na(dose_vec))]
 
   # create obs data matrix
   organ_data <- as.matrix(curr_data[, -1])
@@ -182,11 +187,7 @@ for (file_idx in ext_file_idx) { # c(17, 18, 19, 20,25, 26 )) {
   # center data to match centered prior
   r_means <- rowMeans(organ_data)
   organ_data <- organ_data - matrix(r_means, nrow(organ_data), ncol(organ_data))
-  # extract doses
-  dose_data <- readr::read_table(curr_file, col_names = FALSE, n_max = 2)
-  dose_vec <- (as.numeric(dose_data[2, ]))
-  # doses included as unlabeled row, needs correction
-  doses <- dose_vec[-which(is.na(dose_vec))]
+  
   # null data has some dose format issue
   if (any(grep("null", input_files_dir))) {
     #  the N0 null data sets are missing a dose

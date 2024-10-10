@@ -123,28 +123,28 @@ make_fancy_ggbox <- function(full_df, BMD_MCMC_iter, burnin = 0,
       }
       ggplot(data = mydata, aes(y = Hallmark, x = BMD, fill = stat(x))) +
         geom_density_ridges_gradient(
-          scale = 3, rel_min_height = 0.01,
-        ) +
+          scale = 3, rel_min_height = 0.01) +
         xlab(x_label) +
         ylab("Hallmark Pathway") +
         scale_y_discrete(limits = rev(levels(mydata$Hallmark))) +
         theme_bw() +
-        scale_fill_viridis_c(
-          name = "Log BMD", option = "C",
-          direction = -1, trans = "log"
-        ) +
         theme(legend.position = "None") +
         theme(axis.text.y = element_text(size = 8)) +
         scale_x_continuous(trans = "log10") +
-        annotation_logticks(sides = "b") +
         stat_summary(
-          fun = mean, geom = "point", shape = 23, stroke = .4,
+          fun = function(x) log(mean(10^x), base = 10), geom = "point", shape = 23, stroke = .4,
           size = 1.2, color = "black", fill = "green", aes(colour = "meanLines")
         ) +
         stat_summary(
           fun = function(x) quantile(x, 0.05), geom = "point", shape = 24,
           size = 1.2, stroke = .4, color = "black", fill = "cyan",
           aes(colour = "meanLines")
+        ) +
+        #coord_trans(x = "log10", xlim = c(1, 1000)) +
+        annotation_logticks(sides = "b") +
+        scale_fill_viridis_c(
+          name = "Log BMD", option = "C",
+          direction = -1, trans = "log"
         ) +
         facet_wrap(Chemical ~ Tissue) -> biplot_ridge
     }
@@ -472,27 +472,6 @@ get_corr_ordering <- function(lambda, taus, clust_idx, cuts = 10) {
   return(q)
 }
 
-get_epa_bmd <- function(epa_input, chem, tissue, hallmark) {
-  # read epa bmd
-  epa_input <-
-    read_delim("/Users/zilberds/Desktop/Wheeler/scott_epa/EPA_hallmark.txt",
-      delim = "\t"
-    )
-
-
-  # create filter
-  my_regex <- paste("\b", chem, "\b.*\b", tissue, "\b", sep = "")
-  acr_epa <- epa_input %>%
-    filter(grepl(my_regex, Analysis, ignore.case = TRUE)) %>%
-    filter(grepl(hallmark, `GO/Pathway/Gene Set/Gene Name`)) %>%
-    select(`BMDU Mean`)
-
-  if (length(acr_epa) > 0) {
-    return(acr_epa)
-  }
-  return(NA)
-}
-
 
 #' Collect BMD estimates into a single data frame
 #'
@@ -566,74 +545,23 @@ compare_bmd_EPA <- function(hallmark_bigset_df, take_top_n = FALSE,
 
 
   # get the BMD for 5-day study
-  epa_df_pt1 <- read_delim("../../scott_epa/EPA_hallmark.txt", delim = "\t")
-  epa_hallmark_df_pt1 <- epa_df_pt1 %>%
-    mutate(
-      Chemical = unlist(lapply(
-        Analysis,
-        function(x) unlist(strsplit(x, split = "_"))[2]
-      )),
-      Tissue = unlist(lapply(
-        Analysis,
-        function(x) str_to_title(unlist(strsplit(x, split = "_"))[4])
-      ))
-    ) %>%
-    transform(
-      # BMD_epa = `BMD at 5th Percentile of Total Genes`,
-      # BMD_Mean_epa = `BMD Mean`,
-      BMD_Median_epa = `BMD Median`,
-      # BMDL_Mean_epa = `BMDL Mean`,
-      BMDL_Median_epa = `BMDL Median`,
-      Hallmark = `GO/Pathway/Gene Set/Gene Name`,
-      Active_Genes = paste0(
-        `Genes That Passed All Filters`,
-        "/", `All Genes (Expression Data)`
-      )
-    ) %>%
-    dplyr::select(
-      Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
-      BMD_Median_epa, BMDL_Median_epa, Active_Genes
-    )
+  etap_go_hlmk <- readxl::read_xlsx("../../scott_epa/ETAP Final GO + Hallmark.xlsx")
+  ETAP_hallmark_df <- etap_go_hlmk %>% filter(`Gene Set` == "Hallmark")%>%
+    transform("Active_Genes" = paste0(`Genes That Passed All Filters`,
+                                    "/",
+                                    `All Genes (Expression Data)`)) %>%
+    select(Chemical, Organ,
+           `GO/Pathway/Gene Set/Gene Name`,
+           `BMD Median`,
+           `BMDL Median`,
+          `Active_Genes`) %>%
+    rename( Tissue = `Organ`,
+            Hallmark = `GO/Pathway/Gene Set/Gene Name`,
+            BMDL_Median_epa = `BMDL Median`,
+            BMD_Median_epa = `BMD Median`) 
   
-  
-  epa_file = "../../scott_epa/ETAP Hallmark Final - Analysis in BMDE2 Hallmark 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
-  epa_df_pt2 <- read_delim(epa_file, skip = 4, delim = "\t")
-  epa_hallmark_df_pt2 <- epa_df_pt2 %>%
-    mutate(
-      Chemical = unlist(lapply(
-        Analysis,
-        function(x) unlist(strsplit(x, split = "_"))[1]
-      )),
-      Tissue = unlist(lapply(
-        Analysis,
-        function(x) str_to_title(unlist(strsplit(x, split = "_"))[2])
-      ))
-    ) %>%
-    transform(
-      # BMD_epa = `BMD at 5th Percentile of Total Genes`,
-      # BMD_Mean_epa = `BMD Mean`,
-      BMD_Median_epa = `BMD Median`,
-      # BMDL_Mean_epa = `BMDL Mean`,
-      BMDL_Median_epa = `BMDL Median`,
-      Hallmark = `GO/Pathway/Gene Set/Gene Name`,
-      Active_Genes = paste0(
-        `Genes That Passed All Filters`,
-        "/", `All Genes (Expression Data)`
-      )
-    ) %>%
-    dplyr::select(
-      Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
-      BMD_Median_epa, BMDL_Median_epa, Active_Genes
-    )
-  
-  epa_hallmark_df<- rbind(epa_hallmark_df_pt1, epa_hallmark_df_pt2)
-  
-  epa_hallmark_df$Chemical[grep(
-    "thujone",
-    epa_hallmark_df$Chemical
-  )] <- "abthujone"
 
-  epa_hallmark_df <- epa_hallmark_df %>%
+  epa_hallmark_df <- ETAP_hallmark_df %>%
     group_by(Chemical, Tissue) %>%
     mutate(Rank_EPA = min_rank(BMDL_Median_epa))
 
@@ -833,51 +761,23 @@ compare_GO_apical <- function(GO_df, n_terms = 3, use_ETAP = FALSE) {
     dplyr::mutate_if(is.numeric, round, 2)
 
   if (use_ETAP) {
-    ETAP_apical_GO_df_pt1 <- read_delim(file = "../../scott_epa/ETAP GOBP v5 EPA Direct.txt") %>% # ,skip = 6
-      filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
-      select(c(1, 2, 3, 4, 17, 18)) %>% # 23,24 for v3
-      mutate(
-        Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][2])),
-        Tissue = unlist(lapply(Analysis, FUN = function(r) {
-          tiss <- strsplit(r, "_")[[1]][4]
-          if (tiss == "AA") tiss <- "liver" # TBBPA has "__" instead of "_"
-          return(tiss)
-        })),
-        BMDL = `BMDL Median`,
-        BMD = `BMD Median`
-      ) %>%
-      mutate(Chemical = unlist(lapply(Chemical,
-        FUN = function(r) str_replace(r, "-", "")
-      ))) %>%
+    etap_go_hlmk <- readxl::read_xlsx("../../scott_epa/ETAP Final GO + Hallmark.xlsx")
+    ETAP_apical_GO_df_tot <- etap_go_hlmk %>% filter(`Gene Set` == "GOBP")%>%
+      select(Chemical, Organ,
+             `GO/Pathway/Gene Set/Gene ID`,
+             `GO Level`,
+             `GO/Pathway/Gene Set/Gene Name`,
+             `BMD Median`,
+             `BMDL Median`) %>%
+      rename( Tissue = `Organ`,
+              BMDL = `BMDL Median`,
+              BMD = `BMD Median`) %>%
       filter(Chemical %in% unique(GO_df$Chemical))
 
-
-    ETAP_apical_go_miss <- "../../scott_epa/ETAP GO Final - Analysis in BMDE2 GO BP 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
-    ETAP_apical_GO_df_pt2 <- read_delim(ETAP_apical_go_miss, skip = 4) %>% # ,skip = 6
-      filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
-      select(c(1, 2, 3, 4, 25, 31)) %>% # 23,24 for v3 #17, 18 for v4
-      mutate(
-        Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][1])),
-        Tissue = unlist(lapply(Analysis, FUN = function(r) {
-          tiss <- strsplit(r, "_")[[1]][2]
-          if (tiss == "AA") tiss <- "liver" # TBBPA has "__" instead of "_"
-          return(tiss)
-        })),
-        BMDL = `BMDL Median`,
-        BMD = `BMD Median`
-      ) %>%
-      mutate(Chemical = unlist(lapply(Chemical,
-                                      FUN = function(r) str_replace(r, "-", "")
-      ))) %>%
-      filter(Chemical %in% unique(GO_df$Chemical))
-    
-    
-    ETAP_apical_GO_df_tot = rbind(ETAP_apical_GO_df_pt1, ETAP_apical_GO_df_pt2)
-    
     sub_comp_df <- ETAP_apical_GO_df_tot %>%
       group_by(Chemical) %>%
       slice_min(BMD, n = n_terms, with_ties = F) %>%
-      select(7, 8, 2, 10, 9) %>%
+      select(1, 2, 3, 6, 7) %>%
       rename(
         ETAP.GO.BMD = BMD,
         ETAP.GO.BMDL = BMDL
@@ -1232,14 +1132,14 @@ if (FALSE) {
 
   # save(hallmark_bigset_df, file= "output/chi2_final_hallmark_BMDs.RData")
   # load("../../chi2_final_hallmark_BMDs.RData")
-  sub_idx <- c(205:306)
+  sub_idx <- c(103:204)
   make_fancy_ggbox(hallmark_bigset_df[sub_idx, ],
     BMD_MCMC_iter = BMD_MCMC_iter,
     burnin = 2000,
     quantile_cut = 0.78,
     sort = TRUE,
     use_ridgelets = TRUE,
-    file_label = "Methyl_7k_Full_genome"
+    file_label = "Furan_7k_Full_genome"
   )
 
   # simple plot to show BMD vs hallmark size, in case of trend
@@ -1540,15 +1440,18 @@ if (FALSE) {
   
   
   wide_comparison_BMDL <- wide_comparison_BMDL%>%
-    dplyr::mutate_if(is.numeric, signif, 3)
+    dplyr::mutate_if(is.numeric, round, 2)
   
   wide_comparison_BMD <- BSBMD_vs_apical %>%
     select(-c(2, 4:7, 9)) %>%
     full_join(ETAP_vs_apical[, c(1, 8)], by = "Chemical") %>%
     full_join(BSBMD_vs_apical_GO[, c(1, 8)], by = "Chemical") %>%
     full_join(ETAP_vs_apical_GO[, c(1, 8)], by = "Chemical") %>%
-    dplyr::mutate_if(is.numeric, signif, 2)
+    dplyr::mutate_if(is.numeric, round, 2)
 
+  xtable::xtable(wide_comparison_BMDL, digits = 3, display = c("s", "s", rep("g", 5)))
+  xtable::xtable(wide_comparison_BMD, digits = 3, display = c("s", "s", rep("g", 5)))
+  
   latex.tabular(as.tabular(as.data.frame(wide_comparison_BMDL)))
   latex.tabular(as.tabular(as.data.frame(wide_comparison_BMD)))
 
@@ -1596,3 +1499,130 @@ if (FALSE) {
     top3_BMDL <- top3_BMDL %>% mutate_if(is.numeric, round, 2)  
   latex.tabular(as.tabular(as.data.frame(top3_BMDL)))
   }
+
+
+
+
+
+if(FALSE){
+  # Old ETAP data filtering code
+  # Old GO ####
+  ETAP_apical_GO_df_pt1 <- read_delim(file = "../../scott_epa/ETAP GOBP v5 EPA Direct.txt") %>% # ,skip = 6
+    filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
+    select(c(1, 2, 3, 4, 17, 18)) %>% # 23,24 for v3
+    mutate(
+      Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][2])),
+      Tissue = unlist(lapply(Analysis, FUN = function(r) {
+        tiss <- strsplit(r, "_")[[1]][4]
+        if (tiss == "AA") tiss <- "liver" # TBBPA has "__" instead of "_"
+        return(tiss)
+      })),
+      BMDL = `BMDL Median`,
+      BMD = `BMD Median`
+    ) %>%
+    mutate(Chemical = unlist(lapply(Chemical,
+                                    FUN = function(r) str_replace(r, "-", "")
+    ))) %>%
+    filter(Chemical %in% unique(GO_df$Chemical))
+  
+  
+  ETAP_apical_go_miss <- "../../scott_epa/ETAP GO Final - Analysis in BMDE2 GO BP 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
+  ETAP_apical_GO_df_pt2 <- read_delim(ETAP_apical_go_miss, skip = 4) %>% # ,skip = 6
+    filter(`Input Genes` > 2 & `Input Genes` < 501) %>%
+    select(c(1, 2, 3, 4, 25, 31)) %>% # 23,24 for v3 #17, 18 for v4
+    mutate(
+      Chemical = unlist(lapply(Analysis, FUN = function(r) strsplit(r, "_")[[1]][1])),
+      Tissue = unlist(lapply(Analysis, FUN = function(r) {
+        tiss <- strsplit(r, "_")[[1]][2]
+        if (tiss == "AA") tiss <- "liver" # TBBPA has "__" instead of "_"
+        return(tiss)
+      })),
+      BMDL = `BMDL Median`,
+      BMD = `BMD Median`
+    ) %>%
+    mutate(Chemical = unlist(lapply(Chemical,
+                                    FUN = function(r) str_replace(r, "-", "")
+    ))) %>%
+    filter(Chemical %in% unique(GO_df$Chemical)) 
+  
+  ETAP_apical_GO_df_tot <- rbind(ETAP_apical_GO_df_pt1, ETAP_apical_GO_df_pt2)
+  
+  sub_comp_df <- ETAP_apical_GO_df_tot %>%
+    group_by(Chemical) %>%
+    slice_min(BMD, n = n_terms, with_ties = F) %>%
+    select(7, 8, 2, 10, 9) %>%
+    rename(
+      ETAP.GO.BMD = BMD,
+      ETAP.GO.BMDL = BMDL
+    ) %>%
+    mutate_if(is.numeric, round, 3)
+  
+  # Old HALLMARK ####
+  epa_df_pt1 <- read_delim("../../scott_epa/EPA_hallmark.txt", delim = "\t")
+  epa_hallmark_df_pt1 <- epa_df_pt1 %>%
+    mutate(
+      Chemical = unlist(lapply(
+        Analysis,
+        function(x) unlist(strsplit(x, split = "_"))[2]
+      )),
+      Tissue = unlist(lapply(
+        Analysis,
+        function(x) str_to_title(unlist(strsplit(x, split = "_"))[4])
+      ))
+    ) %>%
+    transform(
+      # BMD_epa = `BMD at 5th Percentile of Total Genes`,
+      # BMD_Mean_epa = `BMD Mean`,
+      BMD_Median_epa = `BMD Median`,
+      # BMDL_Mean_epa = `BMDL Mean`,
+      BMDL_Median_epa = `BMDL Median`,
+      Hallmark = `GO/Pathway/Gene Set/Gene Name`,
+      Active_Genes = paste0(
+        `Genes That Passed All Filters`,
+        "/", `All Genes (Expression Data)`
+      )
+    ) %>%
+    dplyr::select(
+      Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
+      BMD_Median_epa, BMDL_Median_epa, Active_Genes
+    )
+  
+  
+  epa_file = "../../scott_epa/ETAP Hallmark Final - Analysis in BMDE2 Hallmark 3 Genes Extra chemicals not used in ETAP Combined Analyses_filtered.txt"
+  epa_df_pt2 <- read_delim(epa_file, skip = 4, delim = "\t")
+  epa_hallmark_df_pt2 <- epa_df_pt2 %>%
+    mutate(
+      Chemical = unlist(lapply(
+        Analysis,
+        function(x) unlist(strsplit(x, split = "_"))[1]
+      )),
+      Tissue = unlist(lapply(
+        Analysis,
+        function(x) str_to_title(unlist(strsplit(x, split = "_"))[2])
+      ))
+    ) %>%
+    transform(
+      # BMD_epa = `BMD at 5th Percentile of Total Genes`,
+      # BMD_Mean_epa = `BMD Mean`,
+      BMD_Median_epa = `BMD Median`,
+      # BMDL_Mean_epa = `BMDL Mean`,
+      BMDL_Median_epa = `BMDL Median`,
+      Hallmark = `GO/Pathway/Gene Set/Gene Name`,
+      Active_Genes = paste0(
+        `Genes That Passed All Filters`,
+        "/", `All Genes (Expression Data)`
+      )
+    ) %>%
+    dplyr::select(
+      Chemical, Tissue, Hallmark, # BMD_Mean_epa, BMD_epa,BMDL_Mean_epa,
+      BMD_Median_epa, BMDL_Median_epa, Active_Genes
+    )
+  
+  epa_hallmark_df<- rbind(epa_hallmark_df_pt1, epa_hallmark_df_pt2)
+  
+  epa_hallmark_df$Chemical[grep(
+    "thujone",
+    epa_hallmark_df$Chemical
+  )] <- "abthujone"
+  
+}

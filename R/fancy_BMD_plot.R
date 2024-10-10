@@ -88,7 +88,8 @@ make_fancy_ggbox <- function(full_df, BMD_MCMC_iter, burnin = 0,
         mydata$Hallmark <- with(mydata, reorder(Hallmark, BMD, mean))
       }
       ggplot(data = mydata, aes(y = Hallmark, x = BMD, fill = stat(x))) +
-        geom_density_ridges_gradient(scale = 3)+
+        geom_density_ridges_gradient(scale = 3,
+                                     rel_min_height = 0.01)+
         xlab("Pathway BMD - mg/kg") +
         ylab("Hallmark Pathway") +
         #ggtitle(plt_title) +
@@ -101,7 +102,7 @@ make_fancy_ggbox <- function(full_df, BMD_MCMC_iter, burnin = 0,
         scale_x_continuous(trans = "log10") +
         annotation_logticks(sides = "b") +
         stat_summary(
-          fun = mean, geom = "point", shape = 23,stroke=.4,
+          fun = function(x) log(mean(10^(x)), base=10), geom = "point", shape = 23,stroke=.4,
           size = 1.2, color = "black", fill = "green", aes(colour = "meanLines")
         ) +
         stat_summary(
